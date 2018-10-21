@@ -110,12 +110,14 @@ void loop() {
   */
 
 
+  /*
+   
   // changing the accel reading we want, according to some requirement of going up or down
   
-  desiredAccel = someFunction()  //-----------
+  desiredAccel = someFunction()  // Could be a timing function: if t0 < t < t1 -> sink --- if t1 < t < t2 -> rise --- Keep it that way
 
   // Desired change in g, to be shifted by c2 * tanh() to a number between 
-  
+
   numbOfG = c_3 * ( accelX - desiredAccel ) //  -----
 
   // Setting desired angle change
@@ -136,6 +138,10 @@ void loop() {
       servoAngle += desiredAngleChange * (millis() - previousTime); // dividing by milliseconds ok?
       servo.write(servoAngle);
   }
+
+  */
+
+  
 
 }
 
