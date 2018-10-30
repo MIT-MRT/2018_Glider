@@ -3,18 +3,26 @@
 #include <SparkFunLSM9DS1.h>
 #include <Servo.h>
 
-/*  TO DO:
- *   - find out what angle the servo is at in max and min syringe displacement
- *   - 
- * 
- */
+// This defines parameters used globally for the servo adjustments
+
+#define PUSH 0
+#define PULL 1
+#define PUSHREST 2
+#define PULLREST 3
+
+// REMEMBER TO RESET POSITION ZERO ON THE POTENSIOMETER OF THE SERVO!
+// THE BRUTE FORCE WAY TO DO IT IS TO WRITE 90 TO THE SERVO, AND ADJUST THE POTMETER UNTIL SERVO STOPS
 
 Servo myservo;
-double accelX;
-double servoAngle; // The angle of rotation from servos to syringes
-bool shouldDive = false;
-int g = 1;
-int previousTime = 0; // used for taking the time in milliseconds 
+float timeSinceStart = 0; // used for taking the time in milliseconds by millis()
+
+// variable to store the value coming from the sensor
+int sensorValue = 0;  
+
+// select the input pin for the potentiometer -> depends on which analog input 
+int sensorPin = A0;    
+int sensorThreshold = 0;
+
 
 LSM9DS1 imu;
 // SDO_XM and SDO_G are both pulled high, so our addresses are:
@@ -33,13 +41,13 @@ static unsigned long lastPrint = 0; // Keep track of print time
 #define DECLINATION -8.58 // Declination (degrees) in Boulder, CO.
 
 void setup() {
- 
+
   Serial.begin(115200);
   imu.settings.device.commInterface = IMU_MODE_I2C;
   imu.settings.device.mAddress = LSM9DS1_M;
   imu.settings.device.agAddress = LSM9DS1_AG;
   // The above lines will only take effect AFTER calling, imu.begin(), which verifies communication with the IMU and turns it on
-  
+
   if (!imu.begin())
   {
     Serial.println("Failed to communicate with LSM9DS1.");
@@ -51,99 +59,110 @@ void setup() {
     while (1)
       ;
   }
-
-  myservo.attach(2);
+  myservo.attach(9);
 }
 
    
 void loop() {
-  
+
   // Update the sensor values whenever new data is available
-  if ( imu.gyroAvailable() )
-  {
-    // To read from the gyroscope,  call readGyro()
-    imu.readGyro();
-  }
-
-  if ( imu.accelAvailable() )
-  {
-    // To read from the accelerometer, first call the
-    // readAccel() function. When it exits, it'll update the
-    // ax, ay, and az variables with the most current data.
-    imu.readAccel();
-  }
-
-  // printGyro();
-  // printAccel();
-
-  // 
-  accelX = imu.az;
-  // Serial.println(accelX);
-  // Mapping into range of 90-180 degrees, writing to servo for physical representation
-
-  accelX = map(accelX,380,0,90,180);
-  Serial.println(accelX);
-
-  // map the syringe max and min in terms of rotation of the servos
-
-  // myservo.write(accelX); // -----------------
+  if (imu.gyroAvailable()) { imu.readGyro(); }
   
-  delay(15); // Give system time to react
-  
-   /* Control the buoyancy of the glider by attaching to syringes
-    * - SERVO controls the syringes
-    * 
-    * As long as we are going down faster than we want to AND the angle was not set to max
-    *  - increase angle to max (ensure that it is floating by maximize the air in syringes)
-   */
-  
+  // Read from the accelerometer. Updates the ax, ay, and az variables.
+  if ( imu.accelAvailable() ) { imu.readAccel(); }
 
-  // Getting time since program started in milliseconds, to be a
-  previousTime = millis();
-  // Serial.println(previousTime);
+  // printGyro(); printAccel();
 
-  // NEED -> servoMin, servoMax
-  /*
-   *  c_1: some constant for servo bias, must be measured
-   *  c_2: 90 or 180 depending on the servo
-   *  c_3: smoothness parameter (does dive/rise when error in acceleration is 1 g or 0.1 g?)  
-  */
+  sensorValue = analogRead(sensorPin); // reads sensor value from analog input
+  Serial.println(sensorValue);
+  sensorThreshold = 650;
+ 
+  previousTime = millis() / 1000.0;  // Get time since the start of the program in seconds
 
+  // times set for testing of the diveAndRise
+  int moveTime = 2000;
 
-  /*
-   
-  // changing the accel reading we want, according to some requirement of going up or down
-  
-  desiredAccel = someFunction()  // Could be a timing function: if t0 < t < t1 -> sink --- if t1 < t < t2 -> rise --- Keep it that way
+  // Write to servo depending on rising or diving or doing nothing, depending on time or decision, and sensor value
+  diveAndRise(&myservo, moveTime, sensorValue, sensorThreshold); // SEE IMPLEMENTATION BELOW
 
-  // Desired change in g, to be shifted by c2 * tanh() to a number between 
-
-  numbOfG = c_3 * ( accelX - desiredAccel ) //  -----
-
-  // Setting desired angle change
-  
-  desiredAngleChange = c_1 +- c_2 * tanh(numbOfG); // -------
-  
-  // If we want to reduce the angle but the angle but servoAngle is less than or equal to the minimum set servo angle -> set angle to c1 AKA "do nothing"/
-  if (desiredAngleChange < 0 && servoAngle <= servoMin)
-  {
-      servo.write( c_1 ); // or whatever zero means
-  } 
-  else if (desiredAngleChange > 0 && servoAngle >= servoMax) // if we want to increase angle but the angle is larger than or equal to max -> set angle to c1
-  {
-      servo.write( c_1 ); // or whatever zero means
-  } 
-  else // we want to change the angle in a direction that does not interfere with the restrictions
-  {
-      servoAngle += desiredAngleChange * (millis() - previousTime); // dividing by milliseconds ok?
-      servo.write(servoAngle);
-  }
-
-  */
-
-  
-
+  delay(20); // keep
 }
+
+//// OTHER IMPLEMENTATIONS
+
+void diveAndRise(Servo* myservo, int moveTime, int sensorValue, int sensorThreshold){
+    // Setting the angle to <90 for counter clockwise movement, > 90 for clockwise. Cannot control the speed, direction only
+
+    // This parameter is setting the state of the SERVO! Not to be confused with 
+    static int state = PUSH;
+    
+    int rotateCounterClockwise = 45;
+    int rotateClockwise = 130;
+    int rotateNone = 90;
+    
+  switch(state){
+      case PUSH: 
+        if (sensorValue < sensorThreshold){
+        myservo->write(rotateClockwise); // If the glider is supposed to dive -> fill the syringes
+        Serial.println("filling syringes");
+        delay(1000);
+        } else {
+        state = PUSHREST;
+        }
+        break;
+      
+      case PULL:
+        if (sensorValue < sensorThreshold){
+          myservo->write(rotateCounterClockwise); // If the glider is supposed to dive -> fill the syringes
+          Serial.println("filling syringes");
+          delay(1000);
+        } else {
+          state = PULLREST;
+        }
+        break;
+      
+      case PUSHREST:
+        Serial.println("emptying syringes");
+        myservo->write(rotateNone);
+        delay(moveTime);
+        state = PULL;
+        break;
+
+      case PULLREST:
+        Serial.println("emptying syringes");
+        myservo->write(rotateNone);
+        delay(moveTime);
+        state = PUSH;
+        break;
+  }
+
+  /*
+  if (sensorValue < sensorThreshold ) {
+      myservo->write(rotateCounterClockwise); // If the glider is supposed to dive -> fill the syringes
+      Serial.println("filling syringes");
+      delay(1000);
+  } else if (sensorValue > sensorThreshold) {
+      Serial.println("emptying syringes");
+      myservo->write(rotateNone);
+      delay(1000);
+  }
+  
+  else if ( sensorValue > sensorThreshold ) // Wait while the glider is diving // (previousTime > fillTime) && (previousTime < diveTime)
+    {
+      myservo->write(rotateNone); // dont do anything -> glider is diving
+      Serial.println("diving");
+    }
+ 
+  else if (previousTime > diveTime){
+      // Start to empty the syringes
+      Serial.println("emptying syringes");
+      myservo->write( rotateClockwise );
+      // ADD ANOTHER: IF SERVO IS EXPERIENCING ADDED RESISTANCE, THE SYRINGES ARE MOST PROBABLY IN THE END POSITION
+    }
+    */
+  
+}
+
 
 void printAccel()
 {  
