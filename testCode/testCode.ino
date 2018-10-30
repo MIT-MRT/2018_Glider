@@ -18,6 +18,8 @@ float timeSinceStart = 0; // used for taking the time in milliseconds by millis(
 // variable to store the value coming from the sensor
 int sensorValue = 0;  
 
+int moveTime = 0; // Simulating dive time
+
 // select the input pin for the potentiometer -> depends on which analog input 
 int sensorPin = A0;    
 int sensorThreshold = 0;
@@ -78,7 +80,7 @@ void loop() {
   timeSinceStart = millis() / 1000.0;  // Get time since the start of the program in seconds
 
   // moveTime simulates the time it takes to dive and rise for the glider (while servo is not moving) in milliseconds
-  int moveTime = 2 * 1000;
+  moveTime = 2 * 1000;
 
   // Write to servo depending on rising or diving or doing nothing, see implementation below
   
