@@ -3,15 +3,14 @@
 #include <SparkFunLSM9DS1.h>
 #include <Servo.h>
 
-// This defines parameters used globally for the servo adjustments
-
-#define PUSH 0
-#define PULL 1
-#define PUSHREST 2
-#define PULLREST 3
+// This defines parameters used globally for the servo adjustments.
+#define PUSH 0      // Servo should push water out of the syringes
+#define PULL 1      // Servo should pull water into the syringes
+#define PUSHREST 2  // Servo waits after pushing
+#define PULLREST 3  // Servo waits after pulling
 
 // REMEMBER TO RESET POSITION ZERO ON THE POTENSIOMETER OF THE SERVO!
-// THE BRUTE FORCE WAY TO DO IT IS TO WRITE 90 TO THE SERVO, AND ADJUST THE POTMETER UNTIL SERVO STOPS
+// THE HANDS ON WAY TO DO IT IS TO WRITE 90 TO THE SERVO, AND ADJUST THE POTMETER UNTIL SERVO STOPS
 
 Servo myservo;
 float timeSinceStart = 0; // used for taking the time in milliseconds by millis()
@@ -22,7 +21,6 @@ int sensorValue = 0;
 // select the input pin for the potentiometer -> depends on which analog input 
 int sensorPin = A0;    
 int sensorThreshold = 0;
-
 
 LSM9DS1 imu;
 // SDO_XM and SDO_G are both pulled high, so our addresses are:
@@ -71,98 +69,76 @@ void loop() {
   // Read from the accelerometer. Updates the ax, ay, and az variables.
   if ( imu.accelAvailable() ) { imu.readAccel(); }
 
-  // printGyro(); printAccel();
+  // printGyro(); printAccel(); // Used for printing the accelerometer values if needed
 
   sensorValue = analogRead(sensorPin); // reads sensor value from analog input
   Serial.println(sensorValue);
-  sensorThreshold = 650;
+  sensorThreshold = 650; // measured with 5V power supply 
  
-  previousTime = millis() / 1000.0;  // Get time since the start of the program in seconds
+  timeSinceStart = millis() / 1000.0;  // Get time since the start of the program in seconds
 
-  // times set for testing of the diveAndRise
-  int moveTime = 2000;
+  // moveTime simulates the time it takes to dive and rise for the glider (while servo is not moving) in milliseconds
+  int moveTime = 2 * 1000;
 
-  // Write to servo depending on rising or diving or doing nothing, depending on time or decision, and sensor value
-  diveAndRise(&myservo, moveTime, sensorValue, sensorThreshold); // SEE IMPLEMENTATION BELOW
+  // Write to servo depending on rising or diving or doing nothing, see implementation below
+  
+  diveAndRise(&myservo, moveTime, sensorValue, sensorThreshold);
 
-  delay(20); // keep
+  delay(20); // do not remove
 }
 
-//// OTHER IMPLEMENTATIONS
+/////// OWN IMPLEMENTATIONS
 
+// Determines the behaviour of the glider
 void diveAndRise(Servo* myservo, int moveTime, int sensorValue, int sensorThreshold){
-    // Setting the angle to <90 for counter clockwise movement, > 90 for clockwise. Cannot control the speed, direction only
 
-    // This parameter is setting the state of the SERVO! Not to be confused with 
-    static int state = PUSH;
-    
-    int rotateCounterClockwise = 45;
-    int rotateClockwise = 130;
-    int rotateNone = 90;
-    
-  switch(state){
-      case PUSH: 
-        if (sensorValue < sensorThreshold){
-        myservo->write(rotateClockwise); // If the glider is supposed to dive -> fill the syringes
-        Serial.println("filling syringes");
-        delay(1000);
-        } else {
-        state = PUSHREST;
-        }
-        break;
-      
-      case PULL:
-        if (sensorValue < sensorThreshold){
-          myservo->write(rotateCounterClockwise); // If the glider is supposed to dive -> fill the syringes
-          Serial.println("filling syringes");
-          delay(1000);
-        } else {
-          state = PULLREST;
-        }
-        break;
-      
-      case PUSHREST:
-        Serial.println("emptying syringes");
-        myservo->write(rotateNone);
-        delay(moveTime);
-        state = PULL;
-        break;
+  // Setting the value of different rotations. Cannot control the speed (), only direction
+  int rotateCounterClockwise = 45, rotateClockwise = 130, rotateNone = 90;
 
-      case PULLREST:
-        Serial.println("emptying syringes");
-        myservo->write(rotateNone);
-        delay(moveTime);
-        state = PUSH;
-        break;
-  }
-
-  /*
-  if (sensorValue < sensorThreshold ) {
-      myservo->write(rotateCounterClockwise); // If the glider is supposed to dive -> fill the syringes
-      Serial.println("filling syringes");
-      delay(1000);
-  } else if (sensorValue > sensorThreshold) {
-      Serial.println("emptying syringes");
-      myservo->write(rotateNone);
-      delay(1000);
-  }
+  // This parameter is setting the initial state of the SERVO! Not to be confused with the glider's state
+  static int state = PUSH; // static so that it is remembered through every loop
   
-  else if ( sensorValue > sensorThreshold ) // Wait while the glider is diving // (previousTime > fillTime) && (previousTime < diveTime)
-    {
-      myservo->write(rotateNone); // dont do anything -> glider is diving
-      Serial.println("diving");
-    }
- 
-  else if (previousTime > diveTime){
-      // Start to empty the syringes
-      Serial.println("emptying syringes");
-      myservo->write( rotateClockwise );
-      // ADD ANOTHER: IF SERVO IS EXPERIENCING ADDED RESISTANCE, THE SYRINGES ARE MOST PROBABLY IN THE END POSITION
-    }
-    */
+  switch(state){
+      case PUSH: // Push syringes -> empty for water
+          if (sensorValue < sensorThreshold)
+          {
+              myservo->write(rotateClockwise);        // If the glider is supposed to dive -> fill the syringes
+              Serial.println("filling syringes");     // Just for display
+              delay(1000);                            // Used to avoid measuring spikes in sensorValue after setting rotation
+          } else {
+              state = PUSHREST;                       // sensorValue has surpassed the threshold -> syringes are empty
+          }
+          break;
+      
+      case PULL: // Pull sytinges -> fill them with water
+          if (sensorValue < sensorThreshold){
+              myservo->write(rotateCounterClockwise); // If the glider is supposed to dive -> fill the syringes
+              Serial.println("filling syringes");     // Just for display
+              delay(1000);                            // Used to avoid measuring spikes in sensorValue after setting rotation
+          } else {
+              state = PULLREST;                       // sensorValue has surpassed the threshold -> syringes are full
+          }
+          break;
+      
+      case PUSHREST: // Stopping servo after it has detected syringes being pushed into max position
+          Serial.println("emptying syringes");
+          myservo->write(rotateNone);
+          delay(moveTime);
+          state = PULL;
+          break;
+
+      case PULLREST: // Stopping servo after it has detected syringes being pulled into min position
+          Serial.println("emptying syringes");
+          myservo->write(rotateNone);
+          delay(moveTime);
+          state = PUSH;
+          break;
+  }
   
 }
 
+
+////// FROM ARDUINO EXAMPLE CODE
 
 void printAccel()
 {  
